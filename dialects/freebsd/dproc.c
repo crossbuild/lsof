@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dproc.c,v 1.17 2013/01/02 17:01:43 abe Exp $";
+static char *rcsid = "$Id: dproc.c,v 1.19 2015/07/07 20:23:43 abe Exp $";
 #endif
 
 #include "lsof.h"
@@ -120,7 +120,19 @@ gather_proc_info()
 	struct filedesc fd;
 	int i, nf;
 	MALLOC_S nb;
-	static struct file **ofb = NULL;
+
+#if	defined(HAS_FILEDESCENT)
+	typedef struct filedescent ofb_t;
+#else	/* !defined(HAS_FILEDESCENT) */
+	typedef struct file* ofb_t;
+#endif	/* defined(HAS_FILEDESCENT) */
+
+#if	defined(HAS_FDESCENTTBL)
+	struct fdescenttbl fdt;
+	KA_T fa;
+#endif	/* defined(HAS_FDESCENTTBL) */
+
+	static ofb_t *ofb = NULL;
 	static int ofbb = 0;
 	int pgid, pid;
 	int ppid = 0;
@@ -137,10 +149,10 @@ gather_proc_info()
 	struct kinfo_proc *p;
 #endif	/* FREEBSDV<2000 */
 
-#if	defined(HASFSTRUCT)
+#if	defined(HASFSTRUCT) && !defined(HAS_FILEDESCENT)
 	static char *pof = (char *)NULL;
 	static int pofb = 0;
-#endif	/* defined(HASFSTRUCT) */
+#endif	/* defined(HASFSTRUCT) && !defiled(HAS_FILEDESCENT) */
 
 /*
  * Define socket and regular file conditional processing flags.
@@ -288,8 +300,18 @@ gather_proc_info()
 	    if (!p->P_FD
 	    ||  kread((KA_T)p->P_FD, (char *)&fd, sizeof(fd)))
 		continue;
+
+#if	defined(HAS_FDESCENTTBL)
+	    if (!fd.fd_files
+	    ||  kread((KA_T)fd.fd_files, (char *)&fdt, sizeof(fdt)))
+		continue;
+	    if (!fd.fd_refcnt || fd.fd_lastfile > fdt.fdt_nfiles)
+		continue;
+#else	/* !defined(HAS_FDESCENTTBL) */
 	    if (!fd.fd_refcnt || fd.fd_lastfile > fd.fd_nfiles)
 		continue;
+#endif	/* defined(HAS_FDESCENTTBL) */
+
 	/*
 	 * Allocate a local process structure.
 	 */
@@ -364,14 +386,21 @@ gather_proc_info()
 	/*
 	 * Read open file structure pointers.
 	 */
+
+#if	defined(HAS_FDESCENTTBL)
+	    if ((nf = fdt.fdt_nfiles) <= 0)
+		continue;
+#else	/* !defined(HAS_FDESCENTTBL) */
 	    if (!fd.fd_ofiles || (nf = fd.fd_nfiles) <= 0)
 		continue;
-	    nb = (MALLOC_S)(sizeof(struct file *) * nf);
+#endif	/* defined(HAS_FDESCENTTBL) */
+
+	    nb = (MALLOC_S)(sizeof(ofb_t) * nf);
 	    if (nb > ofbb) {
 		if (!ofb)
-		    ofb = (struct file **)malloc(nb);
+		    ofb = (ofb_t *)malloc(nb);
 		else
-		    ofb = (struct file **)realloc((MALLOC_P *)ofb, nb);
+		    ofb = (ofb_t *)realloc((MALLOC_P *)ofb, nb);
 		if (!ofb) {
 		    (void) fprintf(stderr, "%s: PID %d, no file * space\n",
 			Pn, p->P_PID);
@@ -379,10 +408,19 @@ gather_proc_info()
 		}
 		ofbb = nb;
 	    }
+
+#if	defined(HAS_FDESCENTTBL)
+	    fa = (KA_T)fd.fd_files
+	       + (KA_T)offsetof(struct fdescenttbl, fdt_ofiles);
+	    if (kread(fa, (char *)ofb, nb))
+		continue;
+#else	/* !defined(HAS_FDESCENTTBL) */
 	    if (kread((KA_T)fd.fd_ofiles, (char *)ofb, nb))
 		continue;
+#endif	/* defined(HAS_FDESCENTTBL) */
 
-#if	defined(HASFSTRUCT)
+
+#if	defined(HASFSTRUCT) && !defined(HAS_FILEDESCENT)
 	    if (Fsv & FSV_FG) {
 		nb = (MALLOC_S)(sizeof(char) * nf);
 		if (nb > pofb) {
@@ -400,20 +438,31 @@ gather_proc_info()
 		if (!fd.fd_ofileflags || kread((KA_T)fd.fd_ofileflags, pof, nb))
 		    zeromem(pof, nb);
 	    }
-#endif	/* defined(HASFSTRUCT) */
+#endif	/* defined(HASFSTRUCT) && !defined(HAS_FILEDESCENT) */
 
 	/*
 	 * Save information on file descriptors.
 	 */
 	    for (i = 0; i < nf; i++) {
-		if (ofb[i]) {
+
+#if	defined(HAS_FILEDESCENT)
+		if ((Cfp = ofb[i].fde_file))
+#else	/* !defined(HAS_FILEDESCENT) */
+		if ((Cfp = ofb[i]))
+#endif	/* defined(HAS_FILEDESCENT) */
+
+		{
 		    alloc_lfile(NULL, i);
-		    process_file((KA_T)(Cfp = ofb[i]));
+		    process_file((KA_T)Cfp);
 		    if (Lf->sf) {
 
 #if	defined(HASFSTRUCT)
 			if (Fsv & FSV_FG)
+# if	defined(HAS_FILEDESCENT)
+			    Lf->pof = (long)ofb[i].fde_flags;
+# else	/* !defined(HAS_FILEDESCENT) */
 			    Lf->pof = (long)pof[i];
+# endif	/* defined(HAS_FILEDESCENT) */
 #endif	/* defined(HASFSTRUCT) */
 
 			link_lfile();

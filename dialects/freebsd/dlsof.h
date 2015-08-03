@@ -31,7 +31,7 @@
 
 
 /*
- * $Id: dlsof.h,v 1.45 2013/01/02 17:01:43 abe Exp $
+ * $Id: dlsof.h,v 1.47 2015/07/07 20:23:43 abe Exp $
  */
 
 
@@ -340,6 +340,8 @@ struct vop_generic_args;
 #  endif	/* FREEBSDV<5000 */
 # endif	/* FREEBSDV<2000 */
 
+#include <vm/vm.h>
+
 #define	_KERNEL
 #define	KERNEL
 #include <sys/fcntl.h>
@@ -365,8 +367,14 @@ int     open(const char *, int, ...);
 
 #define	intrmask_t	int
 #define	log	log_kernel_lsof
+
+# if	!defined(HAS_PAUSE_SBT)
 #define	pause	pause_kernel_lsof
+# endif	/* !defined(HAS_PAUSE_SBT) */
+
+#define	asprintf asprintf_kernel_lsof
 #define	setenv	setenv_kernel_lsof
+#define	vasprintf vasprintf_kernel_lsof
 #define	uintfptr_t	int
 #define	_SYS_LIBKERN_H_
 #include <sys/file.h>
@@ -376,10 +384,16 @@ int     open(const char *, int, ...);
  */
 
 #undef	_SYS_LIBKERN_H_
+#undef	asprintf_kernel_lsof
 #undef	intrmask_t_lsof
 #undef	log_kernel_lsof
+
+# if	!defined(HAS_PAUSE_SBT)
 #undef	pause_kernel_lsof
+# endif	/* !defined(HAS_PAUSE_SBT) */
+
 #undef	setenv_kernel_lsof
+#undef	vasprintf_kernel_lsof
 #undef	uintfptr_t
 #undef	_KERNEL
 #undef	KERNEL
@@ -419,8 +433,6 @@ struct vop_advlock_args { int dummy; };	/* to pacify lf_advlock() prototype */
 #include <sys/lockf.h>
 # endif	/* FREEBSDV<2000 */
 
-#include <vm/vm.h>
-
 #  if   FREEBSDV>=2020
 #   if	FREEBSDV>=4090
 #define	_KERNEL
@@ -442,27 +454,27 @@ struct vop_advlock_args { int dummy; };	/* to pacify lf_advlock() prototype */
  *  This work-around was supplied by John Polstra <jdp@polstra.com>.
  */
 
-#if	defined(MAP_ENTRY_IS_SUB_MAP) && !defined(MAP_ENTRY_IS_A_MAP)
+# if	defined(MAP_ENTRY_IS_SUB_MAP) && !defined(MAP_ENTRY_IS_A_MAP)
 #define MAP_ENTRY_IS_A_MAP	0
-#endif	/* defined(MAP_ENTRY_IS_SUB_MAP) && !defined(MAP_ENTRY_IS_A_MAP) */
+# endif	/* defined(MAP_ENTRY_IS_SUB_MAP) && !defined(MAP_ENTRY_IS_A_MAP) */
 
 #include <vm/vm_object.h>
 #include <vm/vm_pager.h>
 
-#  if   FREEBSDV>=2020
+# if   FREEBSDV>=2020
 #undef	B_NEEDCOMMIT
 
-#   if	FREEBSDV>=5000
+#  if	FREEBSDV>=5000
 #include <sys/bio.h>
-#   endif	/* FREEBSDV>=5000 */
+#  endif	/* FREEBSDV>=5000 */
 
 #include <sys/buf.h>
 #include <sys/user.h>
 
-#   if	FREEBSDV<5000
+#  if	FREEBSDV<5000
 #include <ufs/mfs/mfsnode.h>
-#   endif	/* FREEBSDV<5000 */
-#  endif        /* FREEBSDV>=2020 */
+#  endif	/* FREEBSDV<5000 */
+# endif        /* FREEBSDV>=2020 */
 
 #include <string.h>
 
@@ -656,9 +668,9 @@ struct	namecache {
 #  endif	/* DEFINED(HASNCVPID) */
 # endif  /* defined(HASNCACHE) */
 
-#if	FREEBSDV>=5000
+# if	FREEBSDV>=5000
 #define	VNODE_VFLAG	v_iflag
 #define	NCACHE_VROOT	VV_ROOT
-#endif	/* FREEBSDV>=5000 */
+# endif	/* FREEBSDV>=5000 */
 
 #endif	/* defined(FREEBSD_LSOF_H) */

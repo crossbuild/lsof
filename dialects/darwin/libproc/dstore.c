@@ -37,7 +37,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 2005 Apple Computer, Inc. and Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dstore.c,v 1.4 2008/10/21 16:15:16 abe Exp $";
+static char *rcsid = "$Id: dstore.c,v 1.4 2008/10/21 16:15:16 abe Exp abe $";
 #endif
 
 
@@ -74,6 +74,18 @@ struct pff_tab Pff_tab[] = {
 
 struct pff_tab Pof_tab[] = {
 
+# if	defined(PROC_FP_SHARED)
+	{ (long)PROC_FP_SHARED,	"SH"		},
+# endif	/* defined(PROC_FP_SHARED) */
+
+# if	defined(PROC_FP_CLEXEC)
+	{ (long)PROC_FP_CLEXEC,	POF_CLOEXEC	},
+# endif	/* defined(PROC_FP_CLEXEC) */
+
+# if	defined(PROC_FP_GUARDED)
+	{ (long)PROC_FP_GUARDED,"GRD"		},
+# endif	/* defined(PROC_FP_GUARDED) */
+
 # if	defined(UF_CLOSING)
 	{ (long)UF_CLOSING,	POF_CLOSING	},
 # endif	/* defined(UF_CLOSING) */
@@ -89,3 +101,19 @@ struct pff_tab Pof_tab[] = {
 	{ (long)0,		NULL		}
 };
 #endif	/* defined(HASFSTRUCT) */
+
+
+#if	defined(PROC_FP_GUARDED)
+/*
+ * Pgf_tab[] - table for print process open file guard flags
+ */
+
+struct pff_tab Pgf_tab[] = {
+	{ (long)PROC_FI_GUARD_CLOSE,		"CLOSE"		},
+	{ (long)PROC_FI_GUARD_DUP,		"DUP"		},
+	{ (long)PROC_FI_GUARD_SOCKET_IPC,	"SOCKET"	},
+	{ (long)PROC_FI_GUARD_FILEPORT,		"FILEPORT"	},
+
+	{ (long)0,				NULL		}
+};
+#endif	/* defined(PROC_FP_GUARDED) */

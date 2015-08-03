@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1997 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dnode.c,v 1.23 2013/01/02 17:02:36 abe Exp $";
+static char *rcsid = "$Id: dnode.c,v 1.25 2015/07/07 19:46:33 abe Exp $";
 #endif
 
 
@@ -47,7 +47,9 @@ static char *rcsid = "$Id: dnode.c,v 1.23 2013/01/02 17:02:36 abe Exp $";
 						 * .../src/fs/locks.c and not
 						 * in a header file */
 #define	PIDBUCKS	64			/* PID hash buckets */
+#define	PINFOBUCKS	512			/* pipe info hash buckets */
 #define	HASHPID(pid)	(((int)((pid * 31415) >> 3)) & (PIDBUCKS - 1))
+#define	HASHPINFO(ino)	(((int)((ino * 31415) >> 3)) & (PINFOBUCKS - 1))
 
 
 /*
@@ -76,6 +78,19 @@ struct llock **LckH = (struct llock **)NULL; /* PID-hashed locks */
 
 _PROTOTYPE(static void check_lock,(void));
 
+#if	defined(HASEPTOPTS)
+_PROTOTYPE(static void enter_pinfo,(void));
+#endif	/* defined(HASEPTOPTS) */
+
+
+/*
+ * Local storage
+ */
+
+#if	defined(HASEPTOPTS)
+static pxinfo_t **Pinfo = (pxinfo_t **)NULL;
+#endif	/* defined(HASEPTOPTS) */
+
 
 /*
  * check_lock() - check lock for file *Lf, process *Lp
@@ -98,6 +113,129 @@ check_lock()
 	    }
 	}
 }
+
+
+#if	defined(HASEPTOPTS)
+/*
+ * clear_pinfo() -- clear allocated pipe info
+ */
+
+void
+clear_pinfo()
+{
+	int h;				/* hash index */
+	pxinfo_t *pi, *pp;		/* temporary pointers */
+
+	if (!Pinfo)
+	    return;
+	for (h = 0; h < PINFOBUCKS; h++) {
+	    if ((pi = Pinfo[h])) {
+		do {
+		    pp = pi->next;
+		    (void) free((FREE_P *)pi);
+		    pi = pp;
+		} while (pi);
+		Pinfo[h] = (pxinfo_t *)NULL;
+	    }
+	}
+}
+
+
+/*
+ * enter_pinfo() -- enter pipe info
+ *
+ * 	entry	Lf = local file structure pointer
+ * 		Lp = local process structure pointer
+ */
+
+static void
+enter_pinfo()
+{
+	int h;				/* hash result */
+	struct lfile *lf;		/* local file structure pointer */
+	struct lproc *lp;		/* local proc structure pointer */
+	pxinfo_t *np, *pi, *pe;		/* pipe info pointers */
+
+	if (!Pinfo) {
+	/*
+	 * Allocate pipe info hash buckets.
+	 */
+	    if (!(Pinfo = (pxinfo_t **)calloc(PINFOBUCKS, sizeof(pxinfo_t *))))
+	    {
+		(void) fprintf(stderr,
+		    "%s: no space for %d pipe info buckets\n", Pn, PINFOBUCKS);
+		    Exit(1);
+	    }
+	}
+    /*
+     * Make sure this is a unique entry.
+     */
+	for (h = HASHPINFO(Lf->inode), pi = Pinfo[h], pe = (pxinfo_t *)NULL;
+	     pi;
+	     pe = pi, pi = pi->next
+	) {
+	    lf = pi->lf;
+	    lp = &Lproc[pi->lpx];
+	    if (pi->ino == Lf->inode) {
+		if ((lp->pid == Lp->pid) && !strcmp(lf->fd, Lf->fd))
+		    return;
+	    }
+	}
+   /*
+    * Allocate, fill and link a new pipe info structure to the end of
+    * the pipe inode hash chain.
+    */
+	if (!(np = (pxinfo_t *)malloc(sizeof(pxinfo_t)))) {
+	    (void) fprintf(stderr,
+		"%s: no space for pipeinfo, PID %d, FD %s\n",
+		Pn, Lp->pid, Lf->fd);
+	    Exit(1);
+	}
+	np->ino = Lf->inode;
+	np->lf = Lf;
+	np->lpx = Lp - Lproc;
+	np->next = (pxinfo_t *)NULL;
+	if (pe)
+	    pe->next = np;
+	else
+	    Pinfo[h] = np;
+}
+
+
+/*
+ * find_pendinfo() -- find pipe end info
+ */
+
+pxinfo_t *
+find_pendinfo(lf, pp)
+	struct lfile *lf;		/* pipe's lfile */
+	pxinfo_t *pp;			/* previous pipe info (NULL == none) */
+{
+	struct lfile *ef;		/* pipe end local file structure */
+	int h;				/* hash result */
+	pxinfo_t *pi;			/* pipe info pointer */
+
+	if (Pinfo) {
+	    if (pp)
+		pi = pp;
+	     else {
+		h = HASHPINFO(lf->inode);
+		pi = Pinfo[h];
+	    }
+	    while (pi) {
+		if (pi->ino == lf->inode) {
+		    ef = pi->lf;
+		    if (strcmp(lf->fd, ef->fd))
+			return(pi);
+	 	}
+		pi = pi->next;
+	    }
+	}
+	return((pxinfo_t *)NULL);
+
+}
+#endif	/* defined(HASEPTOPTS) */
+
 
 
 /*
@@ -441,6 +579,14 @@ process_proc_node(p, pbr, s, ss, l, ls)
 	if (ss & SB_INO) {
 	    Lf->inode = (INODETYPE)s->st_ino;
 	    Lf->inp_ty = 1;
+
+#if	defined(HASEPTOPTS)
+	    if ((Lf->ntype == N_FIFO) && FeptE) {
+	    	(void) enter_pinfo();
+		Lf->sf |= SELPINFO;
+	    }
+#endif	/* defined(HASEPTOPTS) */
+
 	}
 /*
  * Check for a lock.

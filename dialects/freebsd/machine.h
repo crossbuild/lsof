@@ -31,7 +31,7 @@
 
 
 /*
- * $Id: machine.h,v 1.38 2010/07/29 16:04:28 abe Exp $
+ * $Id: machine.h,v 1.39 2015/07/07 20:23:43 abe Exp $
  */
 
 
@@ -61,6 +61,20 @@
 
 typedef	__cpumask_t	cpumask_t;
 #endif	/* defined(HASCPUMASK_T) */
+
+#if	defined(NEEDS_BOOL_TYPEDEF)
+/*
+ * Under FreeBSD 10.0 on the i386 architecture the bool typedef is not defined
+ * unless <sys/types.h> is #included under _KERNEL.  As explained with
+ * cpumask_t, #include'ing <sys/types.h> under _KERNEL causes other problems.
+ * Hence Configure specifies that bool be typedef'd here specifically for the
+ * i386 architecture on FreeBSD 10.0.
+ */
+# if	__STDC_VERSION__<199901L && __GNUC__<3 && !defined(__INTEL_COMPILER)
+typedef int     _Bool;
+# endif	/*__STDC_VERSION__<199901L && __GNUC__<3 && !defined(__INTEL_COMPILER)*/
+typedef _Bool   bool;
+#endif	/* defined(NEEDS_BOOL_TYPEDEF) */
 
 #include <sys/param.h>
 

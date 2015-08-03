@@ -36,7 +36,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 2005-2007 Apple Inc. and Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dfile.c,v 1.8 2012/04/10 16:41:04 abe Exp $";
+static char *rcsid = "$Id: dfile.c,v 1.8 2012/04/10 16:41:04 abe Exp abe $";
 #endif
 
 
@@ -74,7 +74,15 @@ enter_file_info(pfi)
 	if (Fsv & FSV_FG) {
 	    Lf->ffg = (long)pfi->fi_openflags;
 	    Lf->fsv |= FSV_FG;
+
+#if	defined(PROC_FP_GUARDED)
+	    if (pfi->fi_status & PROC_FP_GUARDED) {
+		Lf->guardflags = pfi->fi_guardflags;
+	    }
+#endif	/* defined(PROC_FP_GUARDED) */
+
 	}
+	Lf->pof = (long)pfi->fi_status;
 }
 
 
@@ -110,6 +118,14 @@ enter_vnode_info(vip)
 	    cp = "BLK";
 	    Ntype = N_BLK;
 	    break;
+
+#if	defined(S_IFLNK)
+	case S_IFLNK:
+	    cp = "LINK";
+	    Ntype = N_REGLR;
+	    break;
+#endif	/* defined(S_IFLNK) */
+
 	case S_IFREG:
 	    cp = "REG";
 	    Ntype = N_REGLR;
@@ -246,13 +262,63 @@ void
 print_nm(lf)
 	struct lfile *lf;
 {
+	unsigned char extra = 0;
+
 	printname(0);
-#ifdef        PROC_PIDLISTFILEPORTS
-	if (lf->fileport) {
-		(void) printf(" (fileport=0x%04x)", lf->fileport);
+
+#if	defined(PROC_PIDLISTFILEPORTS)
+	if (lf->fileport)
+	    extra++;
+#endif	/* defined(PROC_PIDLISTFILEPORTS) */
+
+#if	defined(PROC_FP_GUARDED)
+	if (lf->guardflags)
+	    extra++;
+#endif	/* defined(PROC_FP_GUARDED) */
+
+	if (extra)
+	    (void) printf(" (");
+
+#if	defined(PROC_PIDLISTFILEPORTS)
+	if (lf->fileport)
+	    (void) printf("fileport=0x%04x", lf->fileport);
+#endif	/* defined(PROC_PIDLISTFILEPORTS) */
+
+#if	defined(PROC_FP_GUARDED)
+	if (extra > 1)
+	    putchar(`,');
+	if (lf->guardflags) {
+	    struct pff_tab *tp;
+	    long gf;
+
+	    (void) printf("guard=");
+	    tp = Pgf_tab;
+	    gf = lf->guardflags;
+	    while (gf && !FsvFlagX) {
+		while (tp->nm) {
+		    if (gf & tp->val)
+			break;
+		    tp++;
+		}
+		if (!tp->nm)
+		    break;
+		gf &= ~(tp->val);
+		(void) printf("%s%s", tp->nm, gf ? "," : "");
+	    }
+	/*
+	 * If flag bits remain, print them in hex.  If hex output was
+	 * specified with +fG, print all flag values, including zero,
+	 * in hex.
+	 */
+	    if (gf || FsvFlagX)
+		(void) printf("0x%lx", gf);
 	}
-#endif        /* PROC_PIDLISTFILEPORTS */
-	putchar('\n');
+#endif	/* defined(PROC_FP_GUARDED) */
+
+	if (extra)
+	    (void) printf(")\n");
+	else
+	    putchar('\n');
 }
 
 

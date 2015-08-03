@@ -35,7 +35,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 2008 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dnode2.c,v 1.4 2013/01/02 17:01:43 abe Exp $";
+static char *rcsid = "$Id: dnode2.c,v 1.6 2015/07/07 20:23:43 abe Exp $";
 #endif
 
 
@@ -77,7 +77,6 @@ readzfsnode(za, zi, vr)
 	zfsvfs_t zv;			/* znode's zfsvfs structure */
 # endif	/* defined(HAS_Z_PHYS) */
 
-	memset((void *)zi, 0, sizeof(zfs_info_t));
 	if (!za
 	||  kread(za, (char *)&zn, sizeof(zn))
 	) {
@@ -135,4 +134,19 @@ readzfsnode(za, zi, vr)
 
 	return((char *)NULL);
 }
+
+
+
+
+# if	defined(__GNUC__) && defined(HAS_CV_TIMEDWAIT_SBT)
+/*
+ * A gcc work-around
+ */
+
+int     _cv_timedwait_sbt(struct cv *cvp, struct lock_object *lock,       
+            sbintime_t sbt, sbintime_t pr, int flags)
+{
+	return(0);
+}
+# endif	/* defined(__GNUC__) && HAS_CV_TIMEDWAIT_SBT */
 #endif	/* defined(HAS_ZFS) */

@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1997 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dproc.c,v 1.27 2013/01/02 17:02:36 abe Exp $";
+static char *rcsid = "$Id: dproc.c,v 1.29 2015/07/07 19:46:33 abe Exp $";
 #endif
 
 #include "lsof.h"
@@ -80,13 +80,14 @@ static short Ckscko;			/* socket file only checking status:
  * Local function prototypes
  */
 
+_PROTOTYPE(static MALLOC_S alloc_cbf,(MALLOC_S len, char **cbf, MALLOC_S cbfa));
 _PROTOTYPE(static int get_fdinfo,(char *p, struct l_fdinfo *fi));
 _PROTOTYPE(static int getlinksrc,(char *ln, char *src, int srcl, char **rest));
 _PROTOTYPE(static int isefsys,(char *path, char *type, int l,
 			       efsys_list_t **rep, struct lfile **lfr));
 _PROTOTYPE(static int nm2id,(char *nm, int *id, int *idl));
-_PROTOTYPE(static int read_id_stat,(int ty, char *p, int id, char **cmd,
-				    int *ppid, int *pgid));
+_PROTOTYPE(static int read_id_stat,(char *p, int id, char **cmd, int *ppid,
+				    int *pgid));
 _PROTOTYPE(static void process_proc_map,(char *p, struct stat *s, int ss));
 _PROTOTYPE(static int process_id,(char *idp, int idpl, char *cmd, UID_ARG uid,
 				  int pid, int ppid, int pgid, int tid));
@@ -148,6 +149,29 @@ enter_cntx_arg(cntx)
 	return(0);
 }
 #endif	/* defined(HASSELINUX) */
+
+
+/*
+ * alloc_cbf() -- allocate a command buffer
+ */
+
+static MALLOC_S
+alloc_cbf(len, cbf, cbfa)
+	MALLOC_S len;				/* required length */
+	char **cbf;				/* current buffer */
+	MALLOC_S cbfa;				/* current buffer allocation */
+{
+	if (*cbf)
+	    *cbf = (char *)realloc((MALLOC_P *)*cbf, len);
+	else
+	    *cbf = (char *)malloc(len);
+	if (!*cbf) {
+	    (void) fprintf(stderr,
+		"%s: can't allocate command %d bytes\n", Pn, (int)len);
+	     Exit(1);
+	}
+	return(len);
+}
 
 
 /*
@@ -330,7 +354,7 @@ gather_proc_info()
 		    /*
 		     * Check the task state.
 		     */
-			rv = read_id_stat(1, tidpath, tid, &tcmd, &tppid,
+			rv = read_id_stat(tidpath, tid, &tcmd, &tppid,
 					  &tpgid);
 			if ((rv < 0) || (rv == 1))
 			    continue;
@@ -355,7 +379,7 @@ gather_proc_info()
 	 * with its tasks.
 	 */
 	    (void) make_proc_path(pidpath, n, &path, &pathl, "stat");
-	    if (((rv = read_id_stat(0, path, pid, &cmd, &ppid, &pgid)) >= 0) 
+	    if (((rv = read_id_stat(path, pid, &cmd, &ppid, &pgid)) >= 0) 
 	    &&   (rv != 1))
 	    {
 		tid = (Fand && ht && pidts && (Selflags & SELTASK)) ? pid : 0;
@@ -813,8 +837,17 @@ process_id(idp, idpl, cmd, uid, pid, ppid, pgid, tid)
  */
 	if (is_proc_excl(pid, pgid, uid, &pss, &sf, tid)
 	||  is_cmd_excl(cmd, &pss, &sf))
+	{
+
+#if	defined(HASEPTOPTS)
+	    if (!FeptE)
+		return(1);
+#else	/* !defined(HASEPTOPTS) */
 	    return(1);
-	if (Cckreg) {
+#endif	/* defined(HASEPTOPTS) */
+
+	}
+	if (Cckreg && !FeptE) {
 
 	/*
 	 * If conditional checking of regular files is enabled, enable
@@ -829,13 +862,13 @@ process_id(idp, idpl, cmd, uid, pid, ppid, pgid, tid)
 /*
  * Process the ID's current working directory info.
  */
+	efs = 0;
 	if (!Ckscko) {
 	    (void) make_proc_path(idp, idpl, &path, &pathl, "cwd");
 	    alloc_lfile(CWD, -1);
-	    efs = 0;
 	    if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
 		if (!Fwarn) {
-		    (void) memset((void *)&sb, 0, sizeof(sb));
+		    zeromem((char *)&sb, sizeof(sb));
 		    lnk = ss = 0;
 		    (void) snpf(nmabuf, sizeof(nmabuf), "(readlink: %s)",
 			strerror(errno));
@@ -878,13 +911,13 @@ process_id(idp, idpl, cmd, uid, pid, ppid, pgid, tid)
 /*
  * Process the ID's root directory info.
  */
+	lnk = ss = 0;
 	if (!Ckscko) {
 	    (void) make_proc_path(idp, idpl, &path, &pathl, "root");
 	    alloc_lfile(RTD, -1);
 	    if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
 		if (!Fwarn) {
-		    (void) memset((void *)&sb, 0, sizeof(sb));
-		    lnk = ss = 0;
+		    zeromem((char *)&sb, sizeof(sb));
 		    (void) snpf(nmabuf, sizeof(nmabuf), "(readlink: %s)",
 			strerror(errno));
 		    nmabuf[sizeof(nmabuf) - 1] = '\0';
@@ -925,13 +958,12 @@ process_id(idp, idpl, cmd, uid, pid, ppid, pgid, tid)
 /*
  * Process the ID's execution info.
  */
+	lnk = ss = txts = 0;
 	if (!Ckscko) {
-	    txts = 0;
 	    (void) make_proc_path(idp, idpl, &path, &pathl, "exe");
 	    alloc_lfile("txt", -1);
 	    if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
-		(void) memset((void *)&sb, 0, sizeof(sb));
-		lnk = ss = 0;
+		zeromem((void *)&sb, sizeof(sb));
 		if (!Fwarn) {
 		    if ((errno != ENOENT) || uid) {
 			(void) snpf(nmabuf, sizeof(nmabuf), "(readlink: %s)",
@@ -1053,7 +1085,7 @@ process_id(idp, idpl, cmd, uid, pid, ppid, pgid, tid)
 	    (void) make_proc_path(dpath, i, &path, &pathl, fp->d_name);
 	    (void) alloc_lfile((char *)NULL, fd);
 	    if (getlinksrc(path, pbuf, sizeof(pbuf), &rest) < 1) {
-		(void) memset((void *)&sb, 0, sizeof(sb));
+		zeromem((char *)&sb, sizeof(sb));
 		lnk = ss = 0;
 		if (!Fwarn) {
 		    (void) snpf(nmabuf, sizeof(nmabuf), "(readlink: %s)",
@@ -1293,10 +1325,10 @@ process_proc_map(p, s, ss)
 	     * exempt file system) or stat(2) failed, so manufacture a partial
 	     * stat(2) reply from the process' maps file entry.
 	     *
-	     * If the file has been deleted, reset its type to "DEL"; otherwise
-	     * generate a stat() error name addition.
+	     * If the file has been deleted, reset its type to "DEL";
+	     * otherwise generate a stat() error name addition.
 	     */
-		(void) memset((void *)&sb, 0, sizeof(sb));
+		zeromem((char *)&sb, sizeof(sb));
 		sb.st_dev = dev;
 		sb.st_ino = (ino_t)inode;
 		sb.st_mode = S_IFREG;
@@ -1345,7 +1377,7 @@ process_proc_map(p, s, ss)
 			(void) add_nma(nmabuf, strlen(nmabuf));
 		    }
 		}
-		(void) memset((void *)&sb, 0, sizeof(sb));
+		zeromem((char *)&sb, sizeof(sb));
 		sb.st_dev = dev;
 		sb.st_ino = (ino_t)inode;
 		sb.st_mode = S_IFREG;
@@ -1393,8 +1425,7 @@ process_proc_map(p, s, ss)
  */
 
 static int
-read_id_stat(ty, p, id, cmd, ppid, pgid)
-	int ty;				/* type: 0 == PID, 1 == LWP */
+read_id_stat(p, id, cmd, ppid, pgid)
 	char *p;			/* path to status file */
 	int id;				/* ID: PID or LWP */
 	char **cmd;			/* malloc'd command name */
@@ -1403,11 +1434,10 @@ read_id_stat(ty, p, id, cmd, ppid, pgid)
 					 * type */
 {
 	char buf[MAXPATHLEN], *cp, *cp1, **fp;
+	int ch, cx, es, nf;
 	static char *cbf = (char *)NULL;
 	static MALLOC_S cbfa = 0;
 	FILE *fs;
-	MALLOC_S len;
-	int nf;
 	static char *vbuf = (char *)NULL;
 	static size_t vsz = (size_t)0;
 /*
@@ -1416,69 +1446,89 @@ read_id_stat(ty, p, id, cmd, ppid, pgid)
  */
 	if (!(fs = open_proc_stream(p, "r", &vbuf, &vsz, 0)))
 	    return(-1);
-	cp = fgets(buf, sizeof(buf), fs);
-	(void) fclose(fs);
-	if (!cp)
-	    return(-1);
-/*
- * Separate the line into fields on white space separators.  Expect five fields
- * for a PID type and three for an LWP type.
- */
-	if ((nf = get_fields(buf, (char *)NULL, &fp, (int *)NULL, 0))
-	<  (ty ? 5 : 3))
-	{
+	if (!(cp = fgets(buf, sizeof(buf), fs))) {
+
+read_id_stat_exit:
+
+	    (void) fclose(fs);
 	    return(-1);
 	}
 /*
- * Convert the first field to an integer; its conversion must match the
- * ID argument.
+ * Skip to the first field, and make sure it is a matching ID.
  */
-	if (!fp[0] || (atoi(fp[0]) != id))
-	    return(-1);
-/*
- * Get the command name from the second field.  Strip a starting '(' and
- * an ending ')'.  Allocate space to hold the result and return the space
- * pointer.
- */
-	if (!(cp = fp[1]))
-	    return(-1);
-	if (cp && *cp == '(')
+	cp1 = cp;
+	while (*cp && (*cp != ' ') && (*cp != '\t'))
 	    cp++;
-	if ((cp1 = strrchr(cp, ')')))
-	    *cp1 = '\0';
-	if ((len = strlen(cp) + 1) > cbfa) {
-	     cbfa = len;
-	     if (cbf)
-		cbf = (char *)realloc((MALLOC_P *)cbf, cbfa);
-	     else
-		cbf = (char *)malloc(cbfa);
-	     if (!cbf) {
-		(void) fprintf(stderr,
-		    "%s: can't allocate %d bytes for command \"%s\"\n",
-		    Pn, (int)cbfa, cp);
-		Exit(1);
-	     }
+	if (*cp)
+	    *cp = '\0';
+	if (atoi(cp1) != id)
+	    goto read_id_stat_exit;
+/*
+ * The second field should contain the command, enclosed in parentheses.
+ * If it also has embedded '\n' characters, replace them with '?' characters,
+ * accumulating command characters until a closing parentheses appears.
+ *
+ */
+	for (++cp; *cp && (*cp == ' '); cp++)
+		;
+	if (!cp || (*cp != '('))
+	    goto read_id_stat_exit;
+	cp++;
+/*
+ * Enter the command characters safely.  Supply them from the initial read
+ * of the stat file line, a '\n' if the initial read didn't yield a ')'
+ * command closure, or by reading the rest of the command a character at
+ * a time from the stat file.
+ */
+	for (cx = es = 0;;) {
+	    if (!es)
+		ch = *cp++;
+	    else {
+		if ((ch = fgetc(fs)) == EOF)
+		    goto read_id_stat_exit;
+	    }
+	    if (ch == ')')		/* ')' closes the command */
+		break;
+	    if ((cx + 2) > cbfa)
+		cbfa = alloc_cbf((cx + 2), &cbf, cbfa);
+	    cbf[cx] = ch;
+	    cx++;
+	    cbf[cx] = '\0';
+	    if (!es && !*cp)
+		es = 1;		/* Switch to fgetc() when a '\0' appears. */
 	}
-	(void) snpf(cbf, len, "%s", cp);
 	*cmd = cbf;
+/*
+ * Read the remainder of the stat line if it was necessary to read command
+ * characters individually from the stat file.
+ *
+ * Separate the reminder into fields.
+ */
+	if (es)
+	    cp = fgets(buf, sizeof(buf), fs);
+	(void) fclose(fs);
+	if (!cp || !*cp)
+	    return(-1);
+	if ((nf = get_fields(cp, (char *)NULL, &fp, (int *)NULL, 0)) < 3)
+	    return(-1);
 /*
  * Convert and return parent process (fourth field) and process group (fifth
  * field) IDs.
  */
-	if (fp[3] && *fp[3])
-	    *ppid = atoi(fp[3]);
+	if (fp[1] && *fp[1])
+	    *ppid = atoi(fp[1]);
 	else
 	    return(-1);
-	if (fp[4] && *fp[4])
-	    *pgid = atoi(fp[4]);
+	if (fp[2] && *fp[2])
+	    *pgid = atoi(fp[2]);
 	else
 	    return(-1);
 /*
  * Check the state in the third field.  If it is 'Z', return that indication.
  */
-	if (fp[2] && !strcmp(fp[2], "Z"))
+	if (fp[0] && !strcmp(fp[0], "Z"))
 	    return(1);
-	else if (fp[2] && !strcmp(fp[2], "T"))
+	else if (fp[0] && !strcmp(fp[0], "T"))
 	    return(2);
 	return(0);
 }
@@ -1549,7 +1599,7 @@ statEx(p, s, ss)
  * If a stat() on a trimmed result succeeded, form partial results containing
  * only the device and raw device numbers.
  */
-	memset((void *)s, 0, sizeof(struct stat));
+	zeromem((char *)s, sizeof(struct stat));
 	if (st) {
 	    errno = 0;
 	    s->st_dev = sb.st_dev;

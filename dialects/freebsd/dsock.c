@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dsock.c,v 1.29 2013/01/02 17:01:43 abe Exp $";
+static char *rcsid = "$Id: dsock.c,v 1.30 2015/07/07 20:23:43 abe Exp $";
 #endif
 
 
@@ -67,6 +67,12 @@ static char *rcsid = "$Id: dsock.c,v 1.29 2013/01/02 17:01:43 abe Exp $";
 #define	in6p_ppcb	inp_ppcb
 # endif	/* defined(HAS_NO_6PPCB) */
 #endif	/* defined(HASIPv6) */
+
+#if	defined(HAS_SB_CCC)
+#define	SOCK_CC	sb_ccc
+#else	/* !defined(HAS_SB_CCC) */
+#define	SOCK_CC	sb_cc
+#endif	/* defined(HAS_SB_CCC) */
 
 
 /*
@@ -212,18 +218,18 @@ process_socket(sa)
  */
 	if (Fsize) {
 	    if (Lf->access == 'r')
-		Lf->sz = (SZOFFTYPE)s.so_rcv.sb_cc;
+		Lf->sz = (SZOFFTYPE)s.so_rcv.SOCK_CC;
 	    else if (Lf->access == 'w')
-		Lf->sz = (SZOFFTYPE)s.so_snd.sb_cc;
+		Lf->sz = (SZOFFTYPE)s.so_snd.SOCK_CC;
 	    else
-		Lf->sz = (SZOFFTYPE)(s.so_rcv.sb_cc + s.so_snd.sb_cc);
+		Lf->sz = (SZOFFTYPE)(s.so_rcv.SOCK_CC + s.so_snd.SOCK_CC);
 	    Lf->sz_def = 1;
 	} else
 	    Lf->off_def = 1;
 
 #if	defined(HASTCPTPIQ)
-	Lf->lts.rq = s.so_rcv.sb_cc;
-	Lf->lts.sq = s.so_snd.sb_cc;
+	Lf->lts.rq = s.so_rcv.SOCK_CC;
+	Lf->lts.sq = s.so_snd.SOCK_CC;
 	Lf->lts.rqs = Lf->lts.sqs = 1;
 #endif	/* defined(HASTCPTPIQ) */
 

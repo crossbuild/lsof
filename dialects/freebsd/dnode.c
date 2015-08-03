@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dnode.c,v 1.42 2013/01/02 17:01:43 abe Exp $";
+static char *rcsid = "$Id: dnode.c,v 1.44 2015/07/07 20:23:43 abe Exp $";
 #endif
 
 
@@ -50,6 +50,13 @@ static char *rcsid = "$Id: dnode.c,v 1.42 2013/01/02 17:01:43 abe Exp $";
 #if	defined(HASFDESCFS) && HASFDESCFS==1
 _PROTOTYPE(static int lkup_dev_tty,(dev_t *dr, INODETYPE *ir));
 #endif	/* defined(HASFDESCFS) && HASFDESCFS==1 */
+
+
+#if	defined(HAS_TMPFS)
+#define	_KERNEL
+#include <fs/tmpfs/tmpfs.h>
+#undef	_KERNEL
+#endif	/* defined(HAS_TMPFS) */
 
 _PROTOTYPE(static void get_lock_state,(KA_T f));
 
@@ -331,8 +338,13 @@ process_node(va)
 	char vtbuf[32];
 	char *vtbp;
 	enum vtagtype { VT_DEVFS, VT_FDESC, VT_ISOFS, VT_PSEUDOFS, VT_NFS,
-			VT_NULL, VT_UFS, VT_ZFS, VT_UNKNOWN
+			VT_NULL, VT_TMPFS, VT_UFS, VT_ZFS, VT_UNKNOWN
 		      };
+
+# if	defined(HAS_TMPFS)
+	struct tmpfs_node tn;
+	struct tmpfs_node *tnp;
+# endif	/* defined(HAS_TMPFS) */
 #endif	/* FREEBSDV>=5000 */
 
 #if	defined(HASNULLFS)
@@ -419,6 +431,11 @@ process_overlaid_node:
 	pnp = (struct pfs_node *)NULL;
 #endif	/* defined(HASPSEUDOFS) */
 
+# if	defined(HAS_TMPFS)
+	tnp = (struct tmpfs_node *)NULL;
+# endif	/* defined(HAS_TMPFS) */
+
+
 #if	defined(HAS_ZFS)
 	z = (zfs_info_t *)NULL;
 	zm = (char *)NULL;
@@ -483,6 +500,11 @@ process_overlaid_node:
 		else if (strcasecmp(vfs->typnm, "pseudofs") == 0)
 		    Ntype = N_PSEU;
 # endif	/* defined(HASPSEUDOFS) */
+
+# if	defined(HAS_TMPFS)
+		else if (strcasecmp(vfs->typnm, "tmpfs") == 0)
+		    Ntype = N_TMP;
+# endif	/* defined(HAS_TMPFS) */
 #endif	/* defined(MOUNT_NONE) */
 
 	    }
@@ -559,6 +581,8 @@ process_overlaid_node:
 		vtag = VT_NULL;
 	    else if (!strcmp(vtbuf, "fdesc"))
 		vtag = VT_FDESC;
+	    else if (!strcmp(vtbuf, "tmpfs"))
+		vtag = VT_TMPFS;
 	} else
 	    vtbp = "(unknown)";
 #else	/* FREEBSDV<5000 */
@@ -742,6 +766,19 @@ process_overlaid_node:
 	    break;
 #endif	/* defined(HASPSEUDOFS) */
 
+# if	defined(HAS_TMPFS)
+	case VT_TMPFS:
+	    if (!v->v_data
+	    ||  kread((KA_T)v->v_data, (char *)&tn, sizeof(tn))) {
+		(void) snpf(Namech, Namechl, "no tmpfs_node: %s",
+		    print_kptr((KA_T)v->v_data, (char *)NULL, 0));
+		enter_nm(Namech);
+		return;
+	    }
+	    tnp = &tn;
+	    break;
+# endif	/* defined(HAS_TMPFS) */
+
 	case VT_UFS:
 
 #if	FREEBSDV<2000
@@ -783,6 +820,7 @@ process_overlaid_node:
 
 #if	defined(HAS_ZFS)
 	case VT_ZFS:
+	    memset((void *)&zi, 0, sizeof(zfs_info_t));
 	    if (!v->v_data
 	    ||  (zm = readzfsnode((KA_T)v->v_data, &zi,
 				  ((v->v_vflag & VV_ROOT) ? 1 : 0)))
@@ -994,6 +1032,19 @@ process_overlaid_node:
 	}
 #endif	/* defined(HASPSEUDOFS) */
 
+# if	defined(HAS_TMPFS)
+	else if (tnp) {
+	    if (vfs) {
+		dev = vfs->fsid.val[0];
+		devs = 1;
+	    }
+	    if (tnp->tn_type == VBLK || tnp->tn_type == VCHR) {
+		rdev = tnp->tn_rdev;
+		rdevs = 1;
+	    }
+	}
+# endif	/* defined(HAS_TMPFS) */
+
 /*
  * Obtain the inode number.
  */
@@ -1045,6 +1096,13 @@ process_overlaid_node:
 	    Lf->inp_ty = 1;
 	}
 #endif	/* FREEBSDV>=5000 */
+
+# if	defined(HAS_TMPFS)
+	else if (tnp) {
+	    Lf->inode = (INODETYPE)tnp->tn_id;
+	    Lf->inp_ty = 1;
+	}
+# endif	/* defined(HAS_TMPFS) */
 
 /*
  * Obtain the file size.
@@ -1152,7 +1210,20 @@ process_overlaid_node:
 		}
 		else if ((type == VCHR || type == VBLK) && !Fsize)
 		    Lf->off_def = 1;
+		break;
+
+# if	defined(HAS_TMPFS)
+		case N_TMP:
+		    if ((tnp->tn_type == VBLK || tnp->tn_type == VCHR)
+		    &&  !Fsize) {
+			Lf->off_def = 1;
+		    } else {
+			Lf->sz = (SZOFFTYPE)tnp->tn_size;
+			Lf->sz_def = 1;
+		    }
 		    break;
+# endif	/* defined(HAS_TMPFS) */
+
 	    }
 	}
 /*
@@ -1212,6 +1283,15 @@ process_overlaid_node:
 		break;
 #endif	/* defined(HASPSEUODOFS) */
 
+# if	defined(HAS_TMPFS)
+	    case N_TMP:
+		if (tnp) {
+		    Lf->nlink = (long)tnp->tn_links;
+		    Lf->nlink_def = 1;
+		}
+		break;
+# endif	/* defined(HAS_TMPFS) */
+
 	    }
 	    if (Lf->nlink_def && Nlink && (Lf->nlink < Nlink))
 		Lf->sf |= SELNLINK;
@@ -1270,8 +1350,8 @@ process_overlaid_node:
 	    ty = "FIFO";
 	    break;
 	default:
-	    (void) snpf(Lf->type, sizeof(Lf->type), "%04o", (type & 0xfff));
-	    ty = (char *)NULL;
+	     (void) snpf(Lf->type, sizeof(Lf->type), "%04o", (type & 0xfff));
+	     ty = (char *)NULL;
 	}
 	if (ty)
 	    (void) snpf(Lf->type, sizeof(Lf->type), "%s", ty);

@@ -32,7 +32,7 @@
 #ifndef lint
 static char copyright[] =
 "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
-static char *rcsid = "$Id: dnode.c,v 1.59 2012/04/10 16:40:23 abe Exp $";
+static char *rcsid = "$Id: dnode.c,v 1.61 2015/07/07 20:27:15 abe Exp $";
 #endif
 
 
@@ -2367,9 +2367,13 @@ vfs_read_error:
 #if	solaris>=110000
 	case N_SDEV:
 	    if (sdns) {
-		dev = sdva.va_fsid;
-		rdev = sdva.va_rdev;
-		devs = rdevs = 1;
+		if (v->v_type == VDIR) {
+		    dev = v->v_rdev;
+		    devs = 1;
+		} else {
+		    rdev = v->v_rdev;
+		    rdevs = 1;
+		}
 	    }
 	    break;
 #endif	/* solaris>=110000 */

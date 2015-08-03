@@ -1,13 +1,15 @@
 
 # Darwin libproc-based lsof Makefile
 #
-# $Id: Makefile,v 1.7 2009/03/25 19:21:37 abe Exp $
+# $Id: Makefile,v 1.7 2009/03/25 19:21:37 abe Exp abe $
 
 PROG=	lsof
 
 BIN=	${DSTROOT}/usr/sbin
 
 DOC=	${DSTROOT}/usr/share/man/man8
+
+DS=	/usr/bin/dsymutil
 
 I=/usr/include
 S=/usr/include/sys
@@ -48,9 +50,12 @@ clean: FRC
 	(cd lib; ${MAKE} -f Makefile.skel clean)
 
 install-strip: all FRC
-	@if [ -n "${SYMROOT}" ]; then \
+	if [ -n "${SYMROOT}" ]; then \
 	  mkdir -p ${SYMROOT}; \
 	  cp -p ${PROG} ${SYMROOT}/${PROG}; \
+	  if [ -x "${DS}" ]; then \
+	    ${DS} -o ${SYMROOT}/${PROG}.dSYM ${SYMROOT}/${PROG}; \
+	  fi \
 	fi
 	mkdir -p ${BIN}
 	install -c -s -m 755 -g ${GRP} ${PROG} ${BIN}
